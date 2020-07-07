@@ -5,6 +5,13 @@ import sys
 from tqdm import *
 import time
 
+
+from params import get_parser
+parser = get_parser()
+params = parser.parse_args()
+DATASET = params.dataset
+partition = params.partition
+
 def readfile(filename):
     with open(filename,'r') as f:
         lines = []
@@ -35,13 +42,13 @@ if __name__ == "__main__":
     Different recipes separated with \n
     '''
 
-    try:
-        partition = str(sys.argv[1])
-    except:
-        partition = ''
+#     try:
+#         partition = str(sys.argv[1])
+#     except:
+#         partition = ''
 
-    dets = json.load(open('../data/recipe1M/det_ingrs.json','r'))
-    layer1 = json.load(open('../data/recipe1M/layer1.json','r'))
+    dets = json.load(open(DATASET + 'det_ingrs.json','r'))
+    layer1 = json.load(open(DATASET + 'layer1.json','r'))
 
     idx2ind = {}
     ingrs = []
@@ -50,8 +57,8 @@ if __name__ == "__main__":
 
 
     t = time.time()
-    print("Saving tokenized here:", '../data/tokenized_instructions_'+partition+'.txt')
-    f = open('../data/tokenized_instructions_'+partition+'.txt','w')
+    print("Saving tokenized here:", DATASET + 'tokenized_instructions_' + partition + '.txt')
+    f = open(DATASET + 'tokenized_instructions_' + partition + '.txt','w')
     for i,entry in tqdm(enumerate(layer1)):
         '''
         if entry['id'] in dups:
@@ -86,11 +93,11 @@ if __name__ == "__main__":
     f.close()
     print(time.time() - t, 'seconds.')
     print("Number of unique ingredients",len(np.unique(ingrs)))
-    f = open('../data/tokenized_instructions_'+partition+'.txt','r')
+    f = open(DATASET + 'tokenized_instructions_' + partition + '.txt','r')
     text = f.read()
     text = tok(text)
     f.close()
 
-    f = open('../data/tokenized_instructions_'+partition+'.txt','w')
+    f = open(DATASET + 'tokenized_instructions_' + partition + '.txt','w')
     f.write(text)
     f.close()

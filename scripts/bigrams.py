@@ -24,7 +24,7 @@ if create:
 
         if dataset[i]['partition'] == 'train':
             titles.append(title)
-    fileinst = open('../data/titles' + params.suffix + '.txt','w')
+    fileinst = open(DATASET + 'titles-' + params.suffix + '.txt','w')
     for t in titles:
         fileinst.write( t + " ");
 
@@ -32,7 +32,7 @@ if create:
 
     import nltk
     from nltk.corpus import stopwords
-    f = open('../data/titles' +params.suffix+'.txt')
+    f = open(DATASET + 'titles-' + params.suffix + '.txt')
     raw = f.read()
     tokens = nltk.word_tokenize(raw)
     tokens = [i.lower() for i in tokens]
@@ -42,7 +42,7 @@ if create:
     #compute frequency distribution for all the bigrams in the text
     fdist = nltk.FreqDist(bgs)
 
-    pickle.dump(fdist,open('../data/bigrams'+params.suffix+'.pkl','wb'))
+    pickle.dump(fdist,open(DATASET + 'bigrams-' + params.suffix + '.pkl','wb'))
 
 else:
     N = 2000
@@ -72,8 +72,8 @@ else:
         ningrs_list.append(ningrs)
 
     # load bigrams
-    fdist = pickle.load(open('../data/bigrams'+params.suffix+'.pkl','rb'))
-    Nmost = fdist.most_common(N)
+    fdist = pickle.load(open(DATASET + 'bigrams-' + params.suffix+'.pkl','rb'))
+    Nmost = fdist.most_common(N) # 上位N件の取得？
 
     # check bigrams
     queries = []
@@ -81,7 +81,7 @@ else:
 
         counts = {'train': 0, 'val': 0,'test':0}
 
-        if oc[0][0] in fbd_chars or oc[0][1] in fbd_chars:
+        if oc[0][0] in fbd_chars or oc[0][1] in fbd_chars: # 頻出語・記号との組み合わせは無視？
             continue
 
         query = oc[0][0] + ' ' + oc[0][1]
@@ -171,6 +171,6 @@ else:
 
     ind2class[0] = 'background'
     print(len(ind2class))
-    with open('../data/classes'+params.suffix+'.pkl','wb') as f:
+    with open(DATASET + 'classes-' + params.suffix + '.pkl','wb') as f:
         pickle.dump(class_dict,f)
         pickle.dump(ind2class,f)

@@ -1,1 +1,8 @@
 *.pyc
+data/
+results/
+__pycache__/
+_word2vec/
+*.zip
+*.sh.*
+.ipynb_checkpoints/

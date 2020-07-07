@@ -61,6 +61,14 @@ def get_parser():
     parser.add_argument('--vocab', default = 'vocab.txt', type=str)
     parser.add_argument('--dataset', default = '../data/recipe1M/', type=str)
     parser.add_argument('--sthdir', default = '../data/', type=str)
+    
+    parser.add_argument('--skip_thougths',    dest='emb_inst',  action='store_false')
+    parser.add_argument('--bert',       dest='emb_inst',  action='store_true')
+    
+    parser.add_argument('--suffix',      dest='suffix',          default = '1M')
+
+    
+    
 
     return parser
 

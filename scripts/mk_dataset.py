@@ -5,6 +5,7 @@ import numpy as np
 from proc import *
 from tqdm import *
 import torchfile
+import pickle
 import time
 import utils
 import os
@@ -19,41 +20,55 @@ from args import get_parser
 # Maxim number of images we want to use per recipe
 maxNumImgs = 5
 
-def get_st(file):
-    info = torchfile.load(file)
-
-    ids = info[b'ids']
-
-    imids = []
-    for i,id in enumerate(ids):
-        imids.append(''.join(chr(i) for i in id))
-
-    st_vecs = {}
-    st_vecs['encs'] = info['encs']
-    st_vecs['rlens'] = info['rlens']
-    st_vecs['rbps'] = info['rbps']
-    st_vecs['ids'] = imids
-
-    print(np.shape(st_vecs['encs']),len(st_vecs['rlens']),len(st_vecs['rbps']),len(st_vecs['ids']))
-    return st_vecs
-
 # =============================================================================
 parser = get_parser()
 opts = parser.parse_args()
 # =============================================================================
 
 DATASET = opts.dataset
+IS_BERT = opts.emb_inst
+SUFFIX = opts.suffix
+
+
+def get_st(part):
+    st_vecs = {}
+
+    if IS_BERT:
+        with open(DATASET + 'encs_' + part + '_768.pkl', 'rb') as f:
+            info = pickle.load(f)
+        ids = info['ids']
+        imids = []
+        for i,id in enumerate(ids):
+            imids.append(''.join(i for i in id))
+        st_vecs['encs'] = info['encs']
+        st_vecs['rlens'] = info['rlens']
+        st_vecs['rbps'] = info['rbps']
+        st_vecs['ids'] = imids
+    else:
+        info = torchfile.load(DATASET + 'encs_' + part + '_1024.t7')
+        ids = info[b'ids']
+        imids = []
+        for i,id in enumerate(ids):
+            imids.append(''.join(chr(i) for i in id))
+        st_vecs['encs'] = info[b'encs']
+        st_vecs['rlens'] = info[b'rlens']
+        st_vecs['rbps'] = info[b'rbps']
+        st_vecs['ids'] = imids
+
+    print(np.shape(st_vecs['encs']),len(st_vecs['rlens']),len(st_vecs['rbps']),len(st_vecs['ids']))
+    return st_vecs
+
 
 # don't use this file once dataset is clean
-with open('remove1M.txt','r') as f:
+with open(DATASET + 'remove1M.txt','r') as f:
     remove_ids = {w.rstrip(): i for i, w in enumerate(f)}
 
 t = time.time()
 print ("Loading skip-thought vectors...")
 
-st_vecs_train = get_st(os.path.join(opts.sthdir, 'encs_train_1024.t7'))
-st_vecs_val = get_st(os.path.join(opts.sthdir, 'encs_val_1024.t7'))
-st_vecs_test = get_st(os.path.join(opts.sthdir, 'encs_test_1024.t7'))
+st_vecs_train = get_st('train')
+st_vecs_val = get_st('val')
+st_vecs_test = get_st('test')
 
 st_vecs = {'train':st_vecs_train,'val':st_vecs_val,'test':st_vecs_test}
 stid2idx = {'train':{},'val':{},'test':{}}
@@ -68,28 +83,28 @@ print('Loading dataset.')
 # print DATASET
 dataset = utils.Layer.merge([utils.Layer.L1, utils.Layer.L2, utils.Layer.INGRS],DATASET)
 print('Loading ingr vocab.')
-with open(opts.vocab) as f_vocab:
+with open(DATASET + 'vocab.txt') as f_vocab:
     ingr_vocab = {w.rstrip(): i+2 for i, w in enumerate(f_vocab)} # +1 for lua
     ingr_vocab['</i>'] = 1
 
-with open('classes1M.pkl','rb') as f:
+with open(DATASET + 'classes-' + SUFFIX + '.pkl','rb') as f:
     class_dict = pickle.load(f)
     id2class = pickle.load(f)
 
 st_ptr = 0
 numfailed = 0
 
-if os.path.isdir('../data/train_lmdb'):
-    shutil.rmtree('../data/train_lmdb')
-if os.path.isdir('../data/val_lmdb'):
-    shutil.rmtree('../data/val_lmdb')
-if os.path.isdir('../data/test_lmdb'):
-    shutil.rmtree('../data/test_lmdb')
+if os.path.isdir(DATASET + 'train_lmdb'):
+    shutil.rmtree(DATASET + 'train_lmdb')
+if os.path.isdir(DATASET + 'val_lmdb'):
+    shutil.rmtree(DATASET + 'val_lmdb')
+if os.path.isdir(DATASET + 'test_lmdb'):
+    shutil.rmtree(DATASET + 'test_lmdb')
 
 env = {'train' : [], 'val':[], 'test':[]}
-env['train'] = lmdb.open('../data/train_lmdb',map_size=int(1e11))
-env['val']   = lmdb.open('../data/val_lmdb',map_size=int(1e11))
-env['test']  = lmdb.open('../data/test_lmdb',map_size=int(1e11))
+env['train'] = lmdb.open(DATASET + 'train_lmdb',map_size=int(1e11))
+env['val']   = lmdb.open(DATASET + 'val_lmdb',map_size=int(1e11))
+env['test']  = lmdb.open(DATASET + 'test_lmdb',map_size=int(1e11))
 
 print('Assembling dataset.')
 img_ids = dict()
@@ -122,7 +137,7 @@ for i,entry in tqdm(enumerate(dataset)):
     keys[partition].append(entry['id'])
 
 for k in keys.keys():
-    with open('../data/{}_keys.pkl'.format(k),'wb') as f:
+    with open(DATASET + '{}_keys.pkl'.format(k),'wb') as f:
         pickle.dump(keys[k],f)
 
 print('Training samples: %d - Validation samples: %d - Testing samples: %d' % (len(keys['train']),len(keys['val']),len(keys['test'])))

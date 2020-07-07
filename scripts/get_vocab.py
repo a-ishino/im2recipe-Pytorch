@@ -14,3 +14,5 @@ print("Writing to %s..." % os.path.join(os.path.dirname(w2v_file),'vocab.txt'))
 f = open(os.path.join(os.path.dirname(w2v_file),'vocab.txt'),'w')
 f.write("\n".join(vocab))
 f.close()
+print("done")
+

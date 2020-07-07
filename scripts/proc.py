@@ -1,3 +1,6 @@
+# from imageio import imread, imresize
+import scipy
+print(scipy.__version__)
 from scipy.misc import imread, imresize
 import numpy as np
 def detect_ingrs(recipe, vocab):
