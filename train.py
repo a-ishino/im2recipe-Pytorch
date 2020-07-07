@@ -14,6 +14,7 @@ import torch.backends.cudnn as cudnn
 from data_loader import ImagerLoader 
 from args import get_parser
 from trijoint import im2recipe
+from tqdm import tqdm
 
 # =============================================================================
 parser = get_parser()
@@ -28,7 +29,7 @@ else:
 
 def main():
 
-    model = im2recipe()
+    model = im2recipe(inst_mode=opts.inst_mode)
     model.visionMLP = torch.nn.DataParallel(model.visionMLP)
     model.to(device)
 
@@ -113,7 +114,7 @@ def main():
     print('Validation loader prepared.')
 
     # run epochs
-    for epoch in range(opts.start_epoch, opts.epochs):
+    for epoch in tqdm(range(opts.start_epoch, opts.epochs)):
 
         # train for one epoch
         train(train_loader, model, criterion, optimizer, epoch)

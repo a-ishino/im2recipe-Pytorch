@@ -64,6 +64,7 @@ def get_parser():
     
     parser.add_argument('--skip_thougths',    dest='emb_inst',  action='store_false')
     parser.add_argument('--bert',       dest='emb_inst',  action='store_true')
+    parser.add_argument('--inst_mode',       dest='inst_mode',  default = 'bert')
     
     parser.add_argument('--suffix',      dest='suffix',          default = '1M')
 

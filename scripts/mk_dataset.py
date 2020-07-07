@@ -84,7 +84,7 @@ print('Loading dataset.')
 dataset = utils.Layer.merge([utils.Layer.L1, utils.Layer.L2, utils.Layer.INGRS],DATASET)
 print('Loading ingr vocab.')
 with open(DATASET + 'vocab.txt') as f_vocab:
-    ingr_vocab = {w.rstrip(): i+2 for i, w in enumerate(f_vocab)} # +1 for lua
+    ingr_vocab = {w.rstrip(): i+2 for i, w in enumerate(f_vocab)} # +1 for lua ← lua じゃないので +2 を +1 にします。
     ingr_vocab['</i>'] = 1
 
 with open(DATASET + 'classes-' + SUFFIX + '.pkl','rb') as f:

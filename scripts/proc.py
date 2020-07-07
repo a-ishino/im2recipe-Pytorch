@@ -3,7 +3,7 @@ import scipy
 print(scipy.__version__)
 from scipy.misc import imread, imresize
 import numpy as np
-def detect_ingrs(recipe, vocab):
+def detect_ingrs(recipe, vocab): # vocab は {word : idx} の辞書 (1 start)
     try:
         ingr_names = [ingr['text'] for ingr in recipe['ingredients'] if ingr['text']]
     except:
