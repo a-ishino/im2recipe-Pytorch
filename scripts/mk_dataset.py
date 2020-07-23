@@ -1,4 +1,5 @@
 # !/usr/bin/env python
+import os
 import random
 import pickle
 import numpy as np
@@ -8,44 +9,37 @@ import torchfile
 import pickle
 import time
 import utils
-import os
-# from ..args import get_parser
 import time
 import lmdb
-import shutil
-import sys
-sys.path.append("..")
-from args import get_parser
 
 # Maxim number of images we want to use per recipe
 maxNumImgs = 5
 
 # =============================================================================
-parser = get_parser()
+import sys
+sys.path.append("..")
+import args
+parser = args.get_parser()
 opts = parser.parse_args()
+data_path, out_path = args.show_mk_dataset_opts(opts) # create suffix-added path
 # =============================================================================
-
-DATASET = opts.dataset
-IS_BERT = opts.emb_inst
-SUFFIX = opts.suffix
-
 
 def get_st(part):
     st_vecs = {}
 
-    if IS_BERT:
-        with open(DATASET + 'encs_' + part + '_768.pkl', 'rb') as f:
+    if opts.inst_emb == "bert":
+        with open(os.path.join(data_path, 'insts', 'encs_' + part + '_768.pkl'), 'rb') as f:
             info = pickle.load(f)
         ids = info['ids']
         imids = []
         for i,id in enumerate(ids):
             imids.append(''.join(i for i in id))
-        st_vecs['encs'] = info['encs']
-        st_vecs['rlens'] = info['rlens']
-        st_vecs['rbps'] = info['rbps']
+        st_vecs['encs'] = info['encs']   # 特徴量、768次元
+        st_vecs['rlens'] = info['rlens'] # instの入力長 (instructionが5文なら5)
+        st_vecs['rbps'] = info['rbps']   # 累積の入力数 (これまでの文数の合計)
         st_vecs['ids'] = imids
-    else:
-        info = torchfile.load(DATASET + 'encs_' + part + '_1024.t7')
+    elif opts.inst_emb == "st":
+        info = torchfile.load(os.path.join(data_path, 'insts', 'encs_' + part + '_1024.t7'))
         ids = info[b'ids']
         imids = []
         for i,id in enumerate(ids):
@@ -54,13 +48,15 @@ def get_st(part):
         st_vecs['rlens'] = info[b'rlens']
         st_vecs['rbps'] = info[b'rbps']
         st_vecs['ids'] = imids
+    else:
+        raise Exception("inst_emb (%s) most be 'bert' or 'st'" % opts.inst_emb)
 
     print(np.shape(st_vecs['encs']),len(st_vecs['rlens']),len(st_vecs['rbps']),len(st_vecs['ids']))
     return st_vecs
 
 
 # don't use this file once dataset is clean
-with open(DATASET + 'remove1M.txt','r') as f:
+with open(opts.remove1m,'r') as f:
     remove_ids = {w.rstrip(): i for i, w in enumerate(f)}
 
 t = time.time()
@@ -81,30 +77,23 @@ print ("Done.",time.time() - t)
 
 print('Loading dataset.')
 # print DATASET
-dataset = utils.Layer.merge([utils.Layer.L1, utils.Layer.L2, utils.Layer.INGRS],DATASET)
+dataset = utils.Layer.merge([utils.Layer.L1, utils.Layer.L2, utils.Layer.INGRS], os.path.join(data_path, 'layers'))
 print('Loading ingr vocab.')
-with open(DATASET + 'vocab.txt') as f_vocab:
-    ingr_vocab = {w.rstrip(): i+2 for i, w in enumerate(f_vocab)} # +1 for lua ← lua じゃないので +2 を +1 にします。
-    ingr_vocab['</i>'] = 1
+with open(os.path.join(data_path, 'vocab.txt')) as f_vocab:
+    ingr_vocab = {w.rstrip(): i + 2 for i, w in enumerate(f_vocab)} # +1 for lua ← lua じゃないので +2 を +1 にします。
+    ingr_vocab['</i>'] = 1 
 
-with open(DATASET + 'classes-' + SUFFIX + '.pkl','rb') as f:
+with open(os.path.join(data_path, 'bigrams/classes.pkl'),'rb') as f:
     class_dict = pickle.load(f)
     id2class = pickle.load(f)
 
 st_ptr = 0
 numfailed = 0
 
-if os.path.isdir(DATASET + 'train_lmdb'):
-    shutil.rmtree(DATASET + 'train_lmdb')
-if os.path.isdir(DATASET + 'val_lmdb'):
-    shutil.rmtree(DATASET + 'val_lmdb')
-if os.path.isdir(DATASET + 'test_lmdb'):
-    shutil.rmtree(DATASET + 'test_lmdb')
-
 env = {'train' : [], 'val':[], 'test':[]}
-env['train'] = lmdb.open(DATASET + 'train_lmdb',map_size=int(1e11))
-env['val']   = lmdb.open(DATASET + 'val_lmdb',map_size=int(1e11))
-env['test']  = lmdb.open(DATASET + 'test_lmdb',map_size=int(1e11))
+env['train'] = lmdb.open(os.path.join(out_path, 'train_lmdb'), map_size=int(1e11))
+env['val']   = lmdb.open(os.path.join(out_path, 'val_lmdb'), map_size=int(1e11))
+env['test']  = lmdb.open(os.path.join(out_path, 'test_lmdb'), map_size=int(1e11))
 
 print('Assembling dataset.')
 img_ids = dict()
@@ -113,6 +102,7 @@ for i,entry in tqdm(enumerate(dataset)):
 
     ninstrs = len(entry['instructions'])
     ingr_detections = detect_ingrs(entry, ingr_vocab)
+#     print(ingr_detections)
     ningrs = len(ingr_detections)
     imgs = entry.get('images')
 
@@ -137,7 +127,7 @@ for i,entry in tqdm(enumerate(dataset)):
     keys[partition].append(entry['id'])
 
 for k in keys.keys():
-    with open(DATASET + '{}_keys.pkl'.format(k),'wb') as f:
+    with open(os.path.join(out_path, '{}_keys.pkl'.format(k)),'wb') as f:
         pickle.dump(keys[k],f)
 
 print('Training samples: %d - Validation samples: %d - Testing samples: %d' % (len(keys['train']),len(keys['val']),len(keys['test'])))

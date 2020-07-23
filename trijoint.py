@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -95,16 +96,14 @@ class ingRNN(nn.Module):
     def __init__(self):
         super(ingRNN, self).__init__()
         self.irnn = nn.LSTM(input_size=opts.ingrW2VDim, hidden_size=opts.irnnDim, bidirectional=True, batch_first=True)
-        _, vec = torchwordemb.load_word2vec_bin(opts.ingrW2V)
+        _, vec = torchwordemb.load_word2vec_bin(os.path.join(opts.data_path, opts.tag, 'vocab.bin'))
         self.embs = nn.Embedding(vec.size(0), opts.ingrW2VDim, padding_idx=0) # not sure about the padding idx 
         self.embs.weight.data.copy_(vec)
 
     def forward(self, x, sq_lengths):
 
-        print(x)
         # we get the w2v for each element of the ingredient sequence
         x = self.embs(x) 
-        print(x)
 
         # sort sequence according to the length
         sorted_len, sorted_idx = sq_lengths.sort(0, descending=True)
@@ -133,7 +132,7 @@ class ingRNN(nn.Module):
 
 # Im2recipe model
 class im2recipe(nn.Module):
-    def __init__(self, inst_mode):
+    def __init__(self, inst_emb):
         super(im2recipe, self).__init__()
         if opts.preModel=='resNet50':
         
@@ -154,12 +153,13 @@ class im2recipe(nn.Module):
         else:
             raise Exception('Only resNet50 model is implemented.') 
 
-        if inst_mode == "st":
-            self.instRNN    = stRNN()
-        elif inst_mode == "bert":
-            self.instRNN    = bertRNN()
+        if inst_emb == "st":
+            self.stRNN_    = stRNN()
+            print("inst_emb=st")
+        elif inst_emb == "bert":
+            self.stRNN_    = bertRNN()
         else:
-            raise Exception("inst_mode is 'st' or 'bert'")
+            raise Exception("inst_emb is 'st' or 'bert'")
         self.ingRNN_    = ingRNN()
         self.table      = TableModule()
  
@@ -168,13 +168,10 @@ class im2recipe(nn.Module):
 
     def forward(self, x, y1, y2, z1, z2): # we need to check how the input is going to be provided to the model
         # img, instrs, itr_ln, ingrs, igr_ln
+        
         # recipe embedding
-        inst_vec = self.instRNN(y1,y2)
-        print(z1.shape)
-        print(z2.shape)
+        inst_vec = self.stRNN_(y1,y2)
         ing_vec = self.ingRNN_(z1,z2)
-        print(inst_vec.shape)
-        print(ing_vec.shape)
         recipe_emb = self.table([inst_vec, ing_vec],1) # joining on the last dim 
         recipe_emb = self.recipe_embedding(recipe_emb)
         recipe_emb = norm(recipe_emb)

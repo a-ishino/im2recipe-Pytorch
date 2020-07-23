@@ -1,4 +1,6 @@
+import os
 import time
+import random
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -12,11 +14,18 @@ from data_loader import ImagerLoader # our data_loader
 import numpy as np
 from trijoint import im2recipe
 import pickle
-from args import get_parser
+
+from tqdm import tqdm
 
 # =============================================================================
-parser = get_parser()
+import args
+parser = args.get_parser()
 opts = parser.parse_args()
+data_path, results_path, logdir = args.show_test_opts(opts) # create suffix-added path
+# =============================================================================
+from torch.utils.tensorboard import SummaryWriter
+dt_now =  opts.model_path.split('/')[-2]
+test_writer = SummaryWriter(os.path.join(logdir, "test_" + dt_now))
 # =============================================================================
 
 torch.manual_seed(opts.seed)
@@ -31,7 +40,7 @@ else:
 
 def main():
    
-    model = im2recipe()
+    model = im2recipe(inst_emb=opts.inst_emb)
     model.visionMLP = torch.nn.DataParallel(model.visionMLP)
     model.to(device)
 
@@ -66,11 +75,11 @@ def main():
     test_loader = torch.utils.data.DataLoader(
         ImagerLoader(opts.img_path,
  	    transforms.Compose([
-            transforms.Scale(256), # rescale the image keeping the original aspect ratio
+            transforms.Resize(256), # rescale the image keeping the original aspect ratio
             transforms.CenterCrop(224), # we get only the center of that rescaled
             transforms.ToTensor(),
             normalize,
-        ]),data_path=opts.data_path,sem_reg=opts.semantic_reg,partition='test'),
+        ]),data_path=data_path,sem_reg=opts.semantic_reg,partition='test', n_samples=opts.n_samples),
         batch_size=opts.batch_size, shuffle=False,
         num_workers=opts.workers, pin_memory=True)
     print('Test loader prepared.')
@@ -89,7 +98,8 @@ def test(test_loader, model, criterion):
     model.eval()
 
     end = time.time()
-    for i, (input, target) in enumerate(test_loader):
+#     print(len(test_loader))
+    for i, (input, target) in tqdm(enumerate(test_loader)):
         input_var = list() 
         for j in range(len(input)):
             input_var.append(input[j].to(device))
@@ -118,7 +128,12 @@ def test(test_loader, model, criterion):
             loss = criterion(output[0], output[1], target_var[0])
             # measure performance and record loss
             cos_losses.update(loss.data[0], input[0].size(0))
-
+            
+        # tensorboard
+        if i==0:
+            test_writer.add_embedding(output[0], label_img=input_var[0], global_step=i, tag="img_embeds")
+            test_writer.add_embedding(output[1], label_img=input_var[0], global_step=i, tag="rec_embeds")
+        
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
@@ -138,19 +153,99 @@ def test(test_loader, model, criterion):
         print('* Test cosine loss {losses.avg:.4f}'.format(losses=cos_losses))
         print('* Test img class loss {losses.avg:.4f}'.format(losses=img_losses))
         print('* Test rec class loss {losses.avg:.4f}'.format(losses=rec_losses))
+        test_writer.add_text('result-loss', 'cos_loss : %.4f, img_loss : %.4f, rec_loss : %.4f' 
+                             % (cos_losses.avg.item(), img_losses.avg.item(), rec_losses.avg.item()))
     else:
         print('* Test loss {losses.avg:.4f}'.format(losses=cos_losses))
+        test_writer.add_text('result-loss', 'cos_loss : %.4f' 
+                             % (cos_losses.avg.item()))
 
-    with open(opts.path_results+'img_embeds.pkl', 'wb') as f:
+    with open(os.path.join(results_path, 'img_embeds.pkl'), 'wb') as f:
         pickle.dump(data0, f)
-    with open(opts.path_results+'rec_embeds.pkl', 'wb') as f:
+    with open(os.path.join(results_path, 'rec_embeds.pkl'), 'wb') as f:
         pickle.dump(data1, f)
-    with open(opts.path_results+'img_ids.pkl', 'wb') as f:
+    with open(os.path.join(results_path, 'img_ids.pkl'), 'wb') as f:
         pickle.dump(data2, f)
-    with open(opts.path_results+'rec_ids.pkl', 'wb') as f:
+    with open(os.path.join(results_path, 'rec_ids.pkl'), 'wb') as f:
         pickle.dump(data3, f)
+        
+    medR, recall = rank(opts, data0, data1, data2)
+    print('* Val medR {medR:.4f}\t'
+          'Recall {recall}'.format(medR=medR, recall=recall))
+    test_writer.add_text('result-medR', 'medR : %.4f,   recall :  {@1 : %.4f, @5 : %.4f, @10 : %.4f}' 
+                         % (medR, recall[1], recall[5], recall[10]))
 
     return cos_losses.avg
+
+def rank(opts, img_embeds, rec_embeds, rec_ids):
+    random.seed(opts.seed)
+    type_embedding = opts.embtype 
+    im_vecs = img_embeds 
+    instr_vecs = rec_embeds 
+    names = rec_ids
+
+    # Sort based on names to always pick same samples for medr
+    idxs = np.argsort(names)
+    names = [names[i] for i in idxs]
+
+    # Ranker
+    N = opts.medr
+    idxs = range(N)
+
+    glob_rank = []
+    glob_recall = {1:0.0,5:0.0,10:0.0}
+    
+    for i in range(10):
+        ids = random.sample(range(0,len(names)), N)
+        im_sub = im_vecs[ids,:]
+        instr_sub = instr_vecs[ids,:]
+        ids_sub = [names[i] for i in ids]
+
+        # if params.embedding == 'image':
+        if type_embedding == 'image':
+            sims = np.dot(im_sub,instr_sub.T) # for im2recipe
+        else:
+            sims = np.dot(instr_sub,im_sub.T) # for recipe2im
+
+        med_rank = []
+        recall = {1:0.0,5:0.0,10:0.0}
+
+        for ii in idxs:
+
+            name = ids_sub[ii]
+            # get a column of similarities
+            sim = sims[ii,:]
+
+            # sort indices in descending order
+            sorting = np.argsort(sim)[::-1].tolist()
+
+            # find where the index of the pair sample ended up in the sorting
+            pos = sorting.index(ii)
+
+            if (pos+1) == 1:
+                recall[1]+=1
+            if (pos+1) <=5:
+                recall[5]+=1
+            if (pos+1)<=10:
+                recall[10]+=1
+
+            # store the position
+            med_rank.append(pos+1)
+
+        for i in recall.keys():
+            recall[i]=recall[i]/N
+
+        med = np.median(med_rank)
+        # print "median", med
+
+        for i in recall.keys():
+            glob_recall[i]+=recall[i]
+        glob_rank.append(med)
+
+    for i in glob_recall.keys():
+        glob_recall[i] = glob_recall[i]/10
+
+    return np.average(glob_rank), glob_recall
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""

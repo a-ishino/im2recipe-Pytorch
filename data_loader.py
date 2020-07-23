@@ -18,7 +18,7 @@ def default_loader(path):
        
 class ImagerLoader(data.Dataset):
     def __init__(self, img_path, transform=None, target_transform=None,
-                 loader=default_loader, square=False, data_path=None, partition=None, sem_reg=None):
+                 loader=default_loader, square=False, data_path=None, partition=None, sem_reg=None, n_samples=0):
 
         if data_path == None:
             raise Exception('No data path specified.')
@@ -33,6 +33,8 @@ class ImagerLoader(data.Dataset):
 
         with open(os.path.join(data_path, partition + '_keys.pkl'), 'rb') as f:
             self.ids = pickle.load(f)
+            if n_samples > 0:
+                self.ids = self.ids[:n_samples]
 
         self.square = square
         self.imgPath = img_path
@@ -75,8 +77,8 @@ class ImagerLoader(data.Dataset):
 
             loader_path = [imgs[imgIdx]['id'][i] for i in range(4)]
             loader_path = os.path.join(*loader_path)
-            # path = os.path.join(self.imgPath, self.partition, loader_path, imgs[imgIdx]['id'])
-            path = os.path.join(self.imgPath, loader_path, imgs[imgIdx]['id'])
+            path = os.path.join(self.imgPath, self.partition, loader_path, imgs[imgIdx]['id'])
+#             path = os.path.join(self.imgPath, loader_path, imgs[imgIdx]['id'])
         else:
             # we randomly pick one non-matching image
             all_idx = range(len(self.ids))
@@ -98,14 +100,19 @@ class ImagerLoader(data.Dataset):
 
             loader_path = [rndimgs[imgIdx]['id'][i] for i in range(4)]
             loader_path = os.path.join(*loader_path)
-            path = os.path.join(self.imgPath, loader_path, rndimgs[imgIdx]['id'])
+            path = os.path.join(self.imgPath, self.partition, loader_path, rndimgs[imgIdx]['id'])
+#             path = os.path.join(self.imgPath, loader_path, rndimgs[imgIdx]['id'])
             # path = self.imgPath + rndimgs[imgIdx]['id']
 
         # instructions
         instrs = sample['intrs']
         itr_ln = len(instrs)
+#         print(instrs)
         t_inst = np.zeros((self.maxInst, np.shape(instrs)[1]), dtype=np.float32)
+#         t_inst = np.zeros((self.maxInst, len(instrs[0])), dtype=np.float32)  # len(instrs[0]) = 768
+#         t_inst = np.zeros((self.maxInst, 1024), dtype=np.float32)  # len(instrs[0]) = 768
         t_inst[:itr_ln][:] = instrs
+#         t_inst[:itr_ln][:] = np.pad(instrs, [(0, 0), (0, 1024 - 768)], 'constant') # とりあえず0埋めで帳尻を合わせる。あとで直したい。
         instrs = torch.FloatTensor(t_inst)
 
         # ingredients
