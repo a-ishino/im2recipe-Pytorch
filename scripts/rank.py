@@ -8,6 +8,8 @@ import sys
 sys.path.append("..")
 from args import get_parser
 
+from torch.utils.tensorboard import SummaryWriter
+
 # =============================================================================
 parser = get_parser()
 opts = parser.parse_args()
@@ -27,7 +29,11 @@ with open(os.path.join(opts.path_results,'rec_ids.pkl'),'rb') as f:
 
 # Sort based on names to always pick same samples for medr
 idxs = np.argsort(names)
-names = names[idxs]
+names = [names[i] for i in idxs]
+
+writer = SummaryWriter(os.path.join(opts.logdir, opts.suffix))
+writer.add_embedding(im_vecs, names, global_step=0, tag="images/embs")
+writer.add_embedding(instr_vecs, names, global_step=0, tag="insts/embs")
 
 # Ranker
 N = opts.medr
@@ -40,7 +46,7 @@ for i in range(10):
     ids = random.sample(range(0,len(names)), N)
     im_sub = im_vecs[ids,:]
     instr_sub = instr_vecs[ids,:]
-    ids_sub = names[ids]
+    ids_sub = [names[i] for i in ids]
 
     # if params.embedding == 'image':
     if type_embedding == 'image':

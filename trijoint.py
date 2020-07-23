@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -56,12 +57,46 @@ class stRNN(nn.Module):
         output = output.view(output.size(0),output.size(1)*output.size(2))
 
         return output 
+    
+# BERT LSTM (stRNNでLSTMの入力前に768→1024の全結合層を噛ませるだけ)
+class bertRNN(nn.Module):
+    def __init__(self):
+        super(bertRNN, self).__init__()
+        self.fc   = nn.Linear(768, 1024)
+        self.lstm = nn.LSTM(input_size=opts.stDim, hidden_size=opts.srnnDim, bidirectional=False, batch_first=True)
+                
+    def forward(self, x, sq_lengths):
+        # here we use a previous LSTM to get the representation of each instruction 
+        # sort sequence according to the length
+        sorted_len, sorted_idx = sq_lengths.sort(0, descending=True)
+        x = self.fc(x)
+        index_sorted_idx = sorted_idx\
+                .view(-1,1,1).expand_as(x)
+        sorted_inputs = x.gather(0, index_sorted_idx.long())
+        # pack sequence
+        packed_seq = torch.nn.utils.rnn.pack_padded_sequence(
+                sorted_inputs, sorted_len.cpu().data.numpy(), batch_first=True)        
+        # pass it to the lstm
+        out, hidden = self.lstm(packed_seq)
+
+        # unsort the output
+        _, original_idx = sorted_idx.sort(0, descending=False)
+
+        unpacked, _ = torch.nn.utils.rnn.pad_packed_sequence(out, batch_first=True)
+        unsorted_idx = original_idx.view(-1,1,1).expand_as(unpacked)
+        # we get the last index of each sequence in the batch
+        idx = (sq_lengths-1).view(-1,1).expand(unpacked.size(0), unpacked.size(2)).unsqueeze(1)
+        # we sort and get the last element of each sequence
+        output = unpacked.gather(0, unsorted_idx.long()).gather(1,idx.long())
+        output = output.view(output.size(0),output.size(1)*output.size(2))
+
+        return output 
 
 class ingRNN(nn.Module):
     def __init__(self):
         super(ingRNN, self).__init__()
         self.irnn = nn.LSTM(input_size=opts.ingrW2VDim, hidden_size=opts.irnnDim, bidirectional=True, batch_first=True)
-        _, vec = torchwordemb.load_word2vec_bin(opts.ingrW2V)
+        _, vec = torchwordemb.load_word2vec_bin(os.path.join(opts.data_path, opts.tag, 'vocab.bin'))
         self.embs = nn.Embedding(vec.size(0), opts.ingrW2VDim, padding_idx=0) # not sure about the padding idx 
         self.embs.weight.data.copy_(vec)
 
@@ -75,9 +110,11 @@ class ingRNN(nn.Module):
         index_sorted_idx = sorted_idx\
                 .view(-1,1,1).expand_as(x)
         sorted_inputs = x.gather(0, index_sorted_idx.long())
+
+#         print(sorted_len.cpu().data.numpy())
         # pack sequence
         packed_seq = torch.nn.utils.rnn.pack_padded_sequence(
-                sorted_inputs, sorted_len.cpu().data.numpy(), batch_first=True)
+                sorted_inputs, sorted_len.cpu().data.numpy(), batch_first=True)  # sorted_len.cpu().data.numpy()
         # pass it to the rnn
         out, hidden = self.irnn(packed_seq)
 
@@ -95,7 +132,7 @@ class ingRNN(nn.Module):
 
 # Im2recipe model
 class im2recipe(nn.Module):
-    def __init__(self):
+    def __init__(self, inst_emb):
         super(im2recipe, self).__init__()
         if opts.preModel=='resNet50':
         
@@ -116,7 +153,13 @@ class im2recipe(nn.Module):
         else:
             raise Exception('Only resNet50 model is implemented.') 
 
-        self.stRNN_     = stRNN()
+        if inst_emb == "st":
+            self.stRNN_    = stRNN()
+            print("inst_emb=st")
+        elif inst_emb == "bert":
+            self.stRNN_    = bertRNN()
+        else:
+            raise Exception("inst_emb is 'st' or 'bert'")
         self.ingRNN_    = ingRNN()
         self.table      = TableModule()
  
@@ -124,8 +167,12 @@ class im2recipe(nn.Module):
             self.semantic_branch = nn.Linear(opts.embDim, opts.numClasses)
 
     def forward(self, x, y1, y2, z1, z2): # we need to check how the input is going to be provided to the model
+        # img, instrs, itr_ln, ingrs, igr_ln
+        
         # recipe embedding
-        recipe_emb = self.table([self.stRNN_(y1,y2), self.ingRNN_(z1,z2) ],1) # joining on the last dim 
+        inst_vec = self.stRNN_(y1,y2)
+        ing_vec = self.ingRNN_(z1,z2)
+        recipe_emb = self.table([inst_vec, ing_vec],1) # joining on the last dim 
         recipe_emb = self.recipe_embedding(recipe_emb)
         recipe_emb = norm(recipe_emb)
 

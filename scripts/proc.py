@@ -1,9 +1,8 @@
-# from imageio import imread, imresize
 import scipy
-print(scipy.__version__)
-from scipy.misc import imread, imresize
+from scipy.misc.pilutil import imread, imresize
 import numpy as np
-def detect_ingrs(recipe, vocab):
+
+def detect_ingrs(recipe, vocab): # vocab は {word : idx} の辞書 (1 start)
     try:
         ingr_names = [ingr['text'] for ingr in recipe['ingredients'] if ingr['text']]
     except:
@@ -12,10 +11,10 @@ def detect_ingrs(recipe, vocab):
 
     detected = set()
     for name in ingr_names:
-        name = name.replace(' ','_')
-        name_ind = vocab.get(name)
-        if name_ind:
-            detected.add(name_ind)
+        name = name.replace(' ','_') # この処理マジ？
+        name_idx = vocab.get(name)
+        if name_idx:
+            detected.add(name_idx)
         '''
         name_words = name.lower().split(' ')
         for i in xrange(len(name_words)):
